@@ -5,177 +5,255 @@ set -e
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}=== Claude Code API Gateway Installation ===${NC}"
+# Configuration
+REPO_URL="https://github.com/eduard256/claudecode2api.git"
+INSTALL_DIR="$HOME/claudecode2api"
+SERVICE_NAME="claudecode2api"
+REQUIRED_PYTHON_VERSION="3.10"
 
-# Get the directory where this script is located
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+echo -e "${GREEN}╔════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║   Claude Code API Gateway Installation    ║${NC}"
+echo -e "${GREEN}╚════════════════════════════════════════════╝${NC}"
+echo ""
 
-# Check Python version
-echo -e "\n${YELLOW}Checking Python version...${NC}"
-if ! command -v python3 &> /dev/null; then
-    echo -e "${RED}Python 3 is not installed!${NC}"
-    exit 1
-fi
+# Function to check if running as root
+check_not_root() {
+    if [ "$EUID" -eq 0 ]; then
+        echo -e "${RED}ERROR: Do not run this script as root!${NC}"
+        echo -e "${YELLOW}Run as normal user: curl -fsSL https://raw.githubusercontent.com/eduard256/claudecode2api/main/install.sh | bash${NC}"
+        exit 1
+    fi
+}
 
-PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-REQUIRED_VERSION="3.10"
+# Request sudo password upfront
+request_sudo() {
+    echo -e "${YELLOW}╔════════════════════════════════════════════╗${NC}"
+    echo -e "${YELLOW}║  This script requires sudo access         ║${NC}"
+    echo -e "${YELLOW}║  You will be prompted for your password   ║${NC}"
+    echo -e "${YELLOW}╚════════════════════════════════════════════╝${NC}"
+    echo ""
+    sudo -v
 
-if [ "$(printf '%s\n' "$REQUIRED_VERSION" "$PYTHON_VERSION" | sort -V | head -n1)" != "$REQUIRED_VERSION" ]; then
-    echo -e "${RED}Python $REQUIRED_VERSION or higher is required (found $PYTHON_VERSION)${NC}"
-    exit 1
-fi
-echo -e "${GREEN}Python $PYTHON_VERSION detected${NC}"
+    # Keep sudo alive
+    while true; do sudo -n true; sleep 60; kill -0 "$$" || exit; done 2>/dev/null &
+}
 
-# Check and install python3-venv if needed
-echo -e "\n${YELLOW}Checking python3-venv...${NC}"
-
-# Try to create a test venv to verify it works
-TEST_VENV="/tmp/test_venv_$$"
-if python3 -m venv "$TEST_VENV" 2>/dev/null; then
-    rm -rf "$TEST_VENV"
-    echo -e "${GREEN}python3-venv is available${NC}"
-else
-    rm -rf "$TEST_VENV"
-    echo -e "${YELLOW}python3-venv not working, attempting to install...${NC}"
+# Update system and install base packages
+install_system_dependencies() {
+    echo -e "\n${BLUE}[1/8] Updating system and installing dependencies...${NC}"
 
     if command -v apt &> /dev/null; then
-        echo -e "${YELLOW}Installing python${PYTHON_VERSION}-venv and python3-pip...${NC}"
-        echo -e "${YELLOW}You may be prompted for your sudo password.${NC}"
         sudo apt update
-        sudo apt install -y "python${PYTHON_VERSION}-venv" python3-pip
-        echo -e "${GREEN}python3-venv installed${NC}"
+        sudo apt install -y \
+            curl \
+            git \
+            python3 \
+            python3-pip \
+            python3-venv \
+            build-essential \
+            ca-certificates
+        echo -e "${GREEN}✓ System dependencies installed (apt)${NC}"
     elif command -v yum &> /dev/null; then
-        echo -e "${YELLOW}Installing python3-venv...${NC}"
-        echo -e "${YELLOW}You may be prompted for your sudo password.${NC}"
-        sudo yum install -y python3-venv python3-pip
-        echo -e "${GREEN}python3-venv installed${NC}"
+        sudo yum update -y
+        sudo yum install -y \
+            curl \
+            git \
+            python3 \
+            python3-pip \
+            python3-devel \
+            gcc \
+            ca-certificates
+        echo -e "${GREEN}✓ System dependencies installed (yum)${NC}"
+    elif command -v dnf &> /dev/null; then
+        sudo dnf update -y
+        sudo dnf install -y \
+            curl \
+            git \
+            python3 \
+            python3-pip \
+            python3-devel \
+            gcc \
+            ca-certificates
+        echo -e "${GREEN}✓ System dependencies installed (dnf)${NC}"
     else
-        echo -e "${RED}Cannot install python3-venv automatically. Please install it manually.${NC}"
-        echo -e "${RED}Run: apt install python${PYTHON_VERSION}-venv (Debian/Ubuntu)${NC}"
+        echo -e "${RED}ERROR: Unsupported package manager. Please install dependencies manually.${NC}"
+        exit 1
+    fi
+}
+
+# Check Python version
+check_python_version() {
+    echo -e "\n${BLUE}[2/8] Checking Python version...${NC}"
+
+    if ! command -v python3 &> /dev/null; then
+        echo -e "${RED}ERROR: Python 3 is not installed!${NC}"
         exit 1
     fi
 
-    # Verify installation
-    if python3 -m venv "$TEST_VENV" 2>/dev/null; then
-        rm -rf "$TEST_VENV"
-        echo -e "${GREEN}python3-venv installation verified${NC}"
-    else
-        rm -rf "$TEST_VENV"
-        echo -e "${RED}python3-venv installation failed!${NC}"
+    PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+
+    if [ "$(printf '%s\n' "$REQUIRED_PYTHON_VERSION" "$PYTHON_VERSION" | sort -V | head -n1)" != "$REQUIRED_PYTHON_VERSION" ]; then
+        echo -e "${RED}ERROR: Python $REQUIRED_PYTHON_VERSION or higher is required (found $PYTHON_VERSION)${NC}"
         exit 1
     fi
-fi
 
-# Check if Claude Code is available
-echo -e "\n${YELLOW}Checking Claude Code CLI...${NC}"
-CLAUDE_PATH=""
-CLAUDE_VERSION=""
+    echo -e "${GREEN}✓ Python $PYTHON_VERSION detected${NC}"
+}
 
-# Check in PATH
-if command -v claude &> /dev/null; then
-    CLAUDE_PATH=$(which claude)
-    CLAUDE_VERSION=$(claude --version 2>/dev/null || echo "unknown")
-    echo -e "${GREEN}Claude Code found in PATH: $CLAUDE_PATH ($CLAUDE_VERSION)${NC}"
-# Check in ~/.local/bin
-elif [ -f "$HOME/.local/bin/claude" ]; then
-    CLAUDE_PATH="$HOME/.local/bin/claude"
-    CLAUDE_VERSION=$($CLAUDE_PATH --version 2>/dev/null || echo "unknown")
-    echo -e "${GREEN}Claude Code found: $CLAUDE_PATH ($CLAUDE_VERSION)${NC}"
-    echo -e "${YELLOW}Adding CLAUDE_PATH to .env...${NC}"
+# Install Claude Code CLI
+install_claude_code() {
+    echo -e "\n${BLUE}[3/8] Installing Claude Code CLI...${NC}"
 
-    # Add CLAUDE_PATH to .env if not already there
-    if [ -f ".env" ]; then
-        if ! grep -q "CLAUDE_PATH=" .env; then
-            echo "CLAUDE_PATH=$CLAUDE_PATH" >> .env
-            echo -e "${GREEN}CLAUDE_PATH added to .env${NC}"
-        fi
-    fi
-else
-    echo -e "${RED}Claude Code CLI not found!${NC}"
-    echo -e "${YELLOW}Attempting to install Claude Code...${NC}"
-
+    # Always run the installer - it handles existing installations
     if curl -fsSL https://claude.ai/install.sh | bash; then
-        echo -e "${GREEN}Claude Code installed successfully${NC}"
-
         # Update PATH for current session
         export PATH="$HOME/.local/bin:$PATH"
 
-        # Check again
+        # Check installation
         if [ -f "$HOME/.local/bin/claude" ]; then
-            CLAUDE_PATH="$HOME/.local/bin/claude"
-            CLAUDE_VERSION=$($CLAUDE_PATH --version 2>/dev/null || echo "unknown")
-            echo -e "${GREEN}Claude Code found: $CLAUDE_PATH ($CLAUDE_VERSION)${NC}"
-
-            # Add to .env
-            if [ -f ".env" ]; then
-                if ! grep -q "CLAUDE_PATH=" .env; then
-                    echo "CLAUDE_PATH=$CLAUDE_PATH" >> .env
-                fi
-            fi
+            CLAUDE_VERSION=$($HOME/.local/bin/claude --version 2>/dev/null || echo "unknown")
+            echo -e "${GREEN}✓ Claude Code installed: $CLAUDE_VERSION${NC}"
         else
-            echo -e "${RED}Claude Code installation failed!${NC}"
+            echo -e "${RED}ERROR: Claude Code installation failed!${NC}"
             exit 1
         fi
     else
-        echo -e "${RED}Failed to install Claude Code!${NC}"
-        echo -e "${YELLOW}Please install manually: https://claude.ai/code${NC}"
+        echo -e "${RED}ERROR: Failed to install Claude Code!${NC}"
         exit 1
     fi
-fi
+}
 
-# Create virtual environment
-echo -e "\n${YELLOW}Creating virtual environment...${NC}"
-if [ -d "venv" ]; then
-    echo -e "${YELLOW}Virtual environment already exists, skipping...${NC}"
-else
+# Clone or update repository
+setup_repository() {
+    echo -e "\n${BLUE}[4/8] Setting up repository...${NC}"
+
+    if [ -d "$INSTALL_DIR" ]; then
+        echo -e "${YELLOW}Repository already exists, updating...${NC}"
+        cd "$INSTALL_DIR"
+
+        # Stash any local changes
+        git stash save "Auto-stash before update" 2>/dev/null || true
+
+        # Pull latest changes
+        git pull origin main
+        echo -e "${GREEN}✓ Repository updated${NC}"
+    else
+        echo -e "${YELLOW}Cloning repository to $INSTALL_DIR...${NC}"
+        git clone "$REPO_URL" "$INSTALL_DIR"
+        cd "$INSTALL_DIR"
+        echo -e "${GREEN}✓ Repository cloned${NC}"
+    fi
+}
+
+# Setup Python virtual environment
+setup_virtualenv() {
+    echo -e "\n${BLUE}[5/8] Setting up Python virtual environment...${NC}"
+
+    cd "$INSTALL_DIR"
+
+    if [ -d "venv" ]; then
+        echo -e "${YELLOW}Virtual environment exists, recreating...${NC}"
+        rm -rf venv
+    fi
+
     python3 -m venv venv
-    echo -e "${GREEN}Virtual environment created${NC}"
-fi
+    source venv/bin/activate
 
-# Activate and install dependencies
-echo -e "\n${YELLOW}Installing dependencies...${NC}"
-source venv/bin/activate
-pip install --upgrade pip -q
-pip install -r requirements.txt -q
-echo -e "${GREEN}Dependencies installed${NC}"
+    echo -e "${YELLOW}Installing Python dependencies...${NC}"
+    pip install --upgrade pip -q
+    pip install -r requirements.txt -q
 
-# Create .env if not exists
-echo -e "\n${YELLOW}Setting up configuration...${NC}"
-if [ -f ".env" ]; then
-    echo -e "${YELLOW}.env file already exists, skipping...${NC}"
-else
-    cp .env.example .env
-    echo -e "${GREEN}.env file created from template${NC}"
-    echo -e "${RED}IMPORTANT: Edit .env file to set AUTH_USER and AUTH_PASSWORD!${NC}"
-fi
+    echo -e "${GREEN}✓ Virtual environment created and dependencies installed${NC}"
+}
 
-# Ask about systemd installation
-echo -e "\n${YELLOW}Install as systemd service?${NC}"
-read -p "This will enable auto-start on boot (y/N): " -n 1 -r
-echo
+# Configure .env file
+configure_env() {
+    echo -e "\n${BLUE}[6/8] Configuring environment...${NC}"
 
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    # Get current user
-    CURRENT_USER=$(whoami)
+    cd "$INSTALL_DIR"
 
-    # Update service file with correct paths
-    echo -e "\n${YELLOW}Configuring systemd service...${NC}"
+    # Check if .env already exists and has credentials
+    if [ -f ".env" ]; then
+        if grep -q "^AUTH_USER=" .env && grep -q "^AUTH_PASSWORD=" .env; then
+            EXISTING_USER=$(grep "^AUTH_USER=" .env | cut -d= -f2)
+            if [ "$EXISTING_USER" != "admin" ] && [ "$EXISTING_USER" != "changeme" ]; then
+                echo -e "${GREEN}✓ .env file already configured${NC}"
+                return
+            fi
+        fi
+    fi
 
-    # Create service file with actual paths
-    cat > claudecode2api.service << EOF
+    # Create base .env if not exists
+    if [ ! -f ".env" ]; then
+        cat > .env << 'EOF'
+HOST=0.0.0.0
+PORT=9876
+LOG_LEVEL=DEBUG
+EOF
+    fi
+
+    # Add CLAUDE_PATH if not present
+    if ! grep -q "^CLAUDE_PATH=" .env; then
+        echo "CLAUDE_PATH=$HOME/.local/bin/claude" >> .env
+    fi
+
+    # Ask for credentials
+    echo -e "\n${YELLOW}═══════════════════════════════════════════${NC}"
+    echo -e "${YELLOW}  API Authentication Configuration${NC}"
+    echo -e "${YELLOW}═══════════════════════════════════════════${NC}"
+    echo ""
+
+    read -p "Enter API username: " API_USER
+    while [ -z "$API_USER" ]; do
+        echo -e "${RED}Username cannot be empty!${NC}"
+        read -p "Enter API username: " API_USER
+    done
+
+    read -sp "Enter API password: " API_PASSWORD
+    echo ""
+    while [ -z "$API_PASSWORD" ]; do
+        echo -e "${RED}Password cannot be empty!${NC}"
+        read -sp "Enter API password: " API_PASSWORD
+        echo ""
+    done
+
+    # Update or add credentials
+    if grep -q "^AUTH_USER=" .env; then
+        sed -i "s/^AUTH_USER=.*/AUTH_USER=$API_USER/" .env
+    else
+        echo "AUTH_USER=$API_USER" >> .env
+    fi
+
+    if grep -q "^AUTH_PASSWORD=" .env; then
+        sed -i "s/^AUTH_PASSWORD=.*/AUTH_PASSWORD=$API_PASSWORD/" .env
+    else
+        echo "AUTH_PASSWORD=$API_PASSWORD" >> .env
+    fi
+
+    echo -e "${GREEN}✓ Credentials configured${NC}"
+}
+
+# Setup systemd service
+setup_systemd() {
+    echo -e "\n${BLUE}[7/8] Setting up systemd service...${NC}"
+
+    cd "$INSTALL_DIR"
+
+    # Create service file
+    cat > /tmp/${SERVICE_NAME}.service << EOF
 [Unit]
 Description=Claude Code API Gateway
 After=network.target
 
 [Service]
 Type=simple
-User=$CURRENT_USER
-WorkingDirectory=$SCRIPT_DIR
+User=$USER
+WorkingDirectory=$INSTALL_DIR
 Environment="PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
-ExecStart=$SCRIPT_DIR/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 9876
+ExecStart=$INSTALL_DIR/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 9876
 Restart=always
 RestartSec=5
 
@@ -183,26 +261,90 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
-    # Copy service file
-    echo -e "${YELLOW}Installing systemd service (may require sudo password)...${NC}"
-    sudo cp claudecode2api.service /etc/systemd/system/
+    # Install service
+    sudo cp /tmp/${SERVICE_NAME}.service /etc/systemd/system/
     sudo systemctl daemon-reload
-    sudo systemctl enable claudecode2api
+    sudo systemctl enable $SERVICE_NAME
 
-    echo -e "${GREEN}Systemd service installed and enabled${NC}"
-    echo -e "${YELLOW}Start with: sudo systemctl start claudecode2api${NC}"
-    echo -e "${YELLOW}View logs: sudo journalctl -u claudecode2api -f${NC}"
-else
-    echo -e "${YELLOW}Skipping systemd installation${NC}"
-    echo -e "Manual start: source venv/bin/activate && uvicorn app.main:app --host 0.0.0.0 --port 9876"
-fi
+    # Stop if running, then start
+    sudo systemctl stop $SERVICE_NAME 2>/dev/null || true
+    sudo systemctl start $SERVICE_NAME
 
-echo -e "\n${GREEN}=== Installation Complete ===${NC}"
-echo -e ""
-echo -e "Next steps:"
-echo -e "1. Edit .env file to set AUTH_USER and AUTH_PASSWORD"
-echo -e "2. Start the server:"
-echo -e "   - Systemd: ${YELLOW}sudo systemctl start claudecode2api${NC}"
-echo -e "   - Manual:  ${YELLOW}source venv/bin/activate && uvicorn app.main:app --host 0.0.0.0 --port 9876${NC}"
-echo -e "3. Test: ${YELLOW}curl http://localhost:9876/health${NC}"
-echo -e "4. API Docs: ${YELLOW}http://localhost:9876/docs${NC}"
+    # Wait a bit for service to start
+    sleep 2
+
+    # Check status
+    if sudo systemctl is-active --quiet $SERVICE_NAME; then
+        echo -e "${GREEN}✓ Service started and enabled${NC}"
+    else
+        echo -e "${YELLOW}⚠ Service installed but may not be running. Check: sudo systemctl status $SERVICE_NAME${NC}"
+    fi
+}
+
+# Claude Code login
+claude_login() {
+    echo -e "\n${BLUE}[8/8] Claude Code authentication...${NC}"
+    echo ""
+    echo -e "${GREEN}╔════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║   Installation Complete!                  ║${NC}"
+    echo -e "${GREEN}╚════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "${YELLOW}Last step: You need to login to Claude Code${NC}"
+    echo -e "${YELLOW}The Claude Code CLI will open now...${NC}"
+    echo ""
+    echo -e "Press Enter to continue..."
+    read
+
+    # Run claude login (will open browser or show instructions)
+    export PATH="$HOME/.local/bin:$PATH"
+    claude
+}
+
+# Display final information
+show_final_info() {
+    echo ""
+    echo -e "${GREEN}╔════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║          Installation Summary              ║${NC}"
+    echo -e "${GREEN}╚════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "${BLUE}Service Status:${NC}"
+    echo -e "  • Status: ${GREEN}$(sudo systemctl is-active $SERVICE_NAME)${NC}"
+    echo -e "  • Autostart: ${GREEN}enabled${NC}"
+    echo ""
+    echo -e "${BLUE}API Information:${NC}"
+    echo -e "  • URL: ${YELLOW}http://localhost:9876${NC}"
+    echo -e "  • Health: ${YELLOW}http://localhost:9876/health${NC}"
+    echo -e "  • Docs: ${YELLOW}http://localhost:9876/docs${NC}"
+    echo ""
+    echo -e "${BLUE}Service Management:${NC}"
+    echo -e "  • Start: ${YELLOW}sudo systemctl start $SERVICE_NAME${NC}"
+    echo -e "  • Stop: ${YELLOW}sudo systemctl stop $SERVICE_NAME${NC}"
+    echo -e "  • Restart: ${YELLOW}sudo systemctl restart $SERVICE_NAME${NC}"
+    echo -e "  • Status: ${YELLOW}sudo systemctl status $SERVICE_NAME${NC}"
+    echo -e "  • Logs: ${YELLOW}sudo journalctl -u $SERVICE_NAME -f${NC}"
+    echo ""
+    echo -e "${BLUE}Configuration:${NC}"
+    echo -e "  • Location: ${YELLOW}$INSTALL_DIR/.env${NC}"
+    echo ""
+    echo -e "${GREEN}Test the API:${NC}"
+    echo -e "  curl http://localhost:9876/health"
+    echo ""
+}
+
+# Main installation flow
+main() {
+    check_not_root
+    request_sudo
+    install_system_dependencies
+    check_python_version
+    install_claude_code
+    setup_repository
+    setup_virtualenv
+    configure_env
+    setup_systemd
+    show_final_info
+    claude_login
+}
+
+# Run main function
+main

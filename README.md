@@ -17,20 +17,28 @@ API gateway for Claude Code CLI with SSE streaming, parallel requests support, a
 
 ## Quick Start
 
+**One-line installation** (works on clean Ubuntu/Debian/CentOS/Fedora):
+
 ```bash
-# Clone repository
-git clone <repo-url>
-cd claudecode2api
-
-# Install
-./install.sh
-
-# Configure .env
-nano .env
-
-# Start
-sudo systemctl start claudecode2api
+curl -fsSL https://raw.githubusercontent.com/eduard256/claudecode2api/main/install.sh | bash
 ```
+
+This will:
+- Update system and install all dependencies
+- Install Claude Code CLI automatically
+- Clone the repository to `~/claudecode2api`
+- Set up Python virtual environment
+- Configure credentials interactively
+- Install and start systemd service
+- Set up auto-start on boot
+
+**To update an existing installation:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/eduard256/claudecode2api/main/install.sh | bash
+```
+
+The script automatically detects and updates existing installations.
 
 ## Configuration
 
