@@ -109,6 +109,12 @@ install_claude_code() {
 
     # Always run the installer - it handles existing installations
     if curl -fsSL https://claude.ai/install.sh | bash; then
+        # Add to PATH permanently
+        if ! grep -q 'export PATH="$HOME/.local/bin:$PATH"' ~/.bashrc; then
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+            echo -e "${GREEN}✓ Added ~/.local/bin to PATH in ~/.bashrc${NC}"
+        fi
+
         # Update PATH for current session
         export PATH="$HOME/.local/bin:$PATH"
 
@@ -206,17 +212,18 @@ EOF
     echo -e "${YELLOW}═══════════════════════════════════════════${NC}"
     echo ""
 
-    read -p "Enter API username: " API_USER
+    # Use /dev/tty to read from terminal even when piped
+    read -p "Enter API username: " API_USER < /dev/tty
     while [ -z "$API_USER" ]; do
         echo -e "${RED}Username cannot be empty!${NC}"
-        read -p "Enter API username: " API_USER
+        read -p "Enter API username: " API_USER < /dev/tty
     done
 
-    read -sp "Enter API password: " API_PASSWORD
+    read -sp "Enter API password: " API_PASSWORD < /dev/tty
     echo ""
     while [ -z "$API_PASSWORD" ]; do
         echo -e "${RED}Password cannot be empty!${NC}"
-        read -sp "Enter API password: " API_PASSWORD
+        read -sp "Enter API password: " API_PASSWORD < /dev/tty
         echo ""
     done
 
@@ -293,11 +300,18 @@ claude_login() {
     echo -e "${YELLOW}The Claude Code CLI will open now...${NC}"
     echo ""
     echo -e "Press Enter to continue..."
-    read
+    read < /dev/tty
 
     # Run claude login (will open browser or show instructions)
     export PATH="$HOME/.local/bin:$PATH"
-    claude
+
+    # Check if already logged in
+    if claude user 2>/dev/null | grep -q "@"; then
+        echo -e "${GREEN}✓ Already logged in to Claude Code${NC}"
+    else
+        # Open claude for login
+        claude < /dev/tty
+    fi
 }
 
 # Display final information
