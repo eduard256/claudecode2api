@@ -31,11 +31,18 @@ echo -e "${GREEN}Python $PYTHON_VERSION detected${NC}"
 
 # Check and install python3-venv if needed
 echo -e "\n${YELLOW}Checking python3-venv...${NC}"
-if ! python3 -m venv --help &> /dev/null; then
-    echo -e "${YELLOW}python3-venv not found, attempting to install...${NC}"
+
+# Try to create a test venv to verify it works
+TEST_VENV="/tmp/test_venv_$$"
+if python3 -m venv "$TEST_VENV" 2>/dev/null; then
+    rm -rf "$TEST_VENV"
+    echo -e "${GREEN}python3-venv is available${NC}"
+else
+    rm -rf "$TEST_VENV"
+    echo -e "${YELLOW}python3-venv not working, attempting to install...${NC}"
     if command -v apt &> /dev/null; then
         sudo apt update -qq
-        sudo apt install -y python3-venv python3-pip
+        sudo apt install -y "python${PYTHON_VERSION}-venv" python3-pip
         echo -e "${GREEN}python3-venv installed${NC}"
     elif command -v yum &> /dev/null; then
         sudo yum install -y python3-venv
@@ -44,8 +51,6 @@ if ! python3 -m venv --help &> /dev/null; then
         echo -e "${RED}Cannot install python3-venv automatically. Please install it manually.${NC}"
         exit 1
     fi
-else
-    echo -e "${GREEN}python3-venv is available${NC}"
 fi
 
 # Check if Claude Code is available
