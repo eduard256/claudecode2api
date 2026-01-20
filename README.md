@@ -1,38 +1,40 @@
 # Claude Code API Gateway
 
-API-шлюз для Claude Code CLI с SSE streaming, поддержкой параллельных запросов и полным проксированием JSON output.
+API gateway for Claude Code CLI with SSE streaming, parallel requests support, and full JSON output proxying.
 
-## Возможности
+## Features
 
-- SSE streaming raw JSON без модификаций
-- Поддержка множества параллельных запросов
-- Управление сессиями (новые/продолжение через session_id)
-- Прерывание выполнения запроса
-- Поддержка всех параметров Claude Code CLI
-- Basic Auth авторизация
-- Автоопределение пути к Claude Code
-- Systemd автозапуск
+- SSE streaming raw JSON without modifications
+- Multiple parallel requests support
+- Session management (new/continue via session_id)
+- Request cancellation
+- **Permission restrictions** — limit tools and commands
+- Support for all Claude Code CLI parameters
+- MCP servers support
+- Basic Auth authentication
+- Auto-detection of Claude Code path
+- Systemd autostart
 
-## Быстрый старт
+## Quick Start
 
 ```bash
-# Клонировать репозиторий
+# Clone repository
 git clone <repo-url>
 cd claudecode2api
 
-# Установка
+# Install
 ./install.sh
 
-# Настроить .env
+# Configure .env
 nano .env
 
-# Запустить
+# Start
 sudo systemctl start claudecode2api
 ```
 
-## Конфигурация
+## Configuration
 
-Скопируйте `.env.example` в `.env` и настройте:
+Copy `.env.example` to `.env` and configure:
 
 ```env
 # Server
@@ -52,25 +54,16 @@ LOG_LEVEL=DEBUG
 
 ## API Endpoints
 
-### `GET /health`
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | Health check (no auth) |
+| POST | `/chat` | Start Claude Code with SSE streaming |
+| DELETE | `/chat/{process_id}` | Cancel running request |
+| GET | `/processes` | List active processes |
 
-Проверка состояния сервиса.
+### POST /chat
 
-```bash
-curl http://localhost:9876/health
-```
-
-```json
-{
-  "status": "ok",
-  "claude_path": "/home/user/.local/bin/claude",
-  "claude_version": "2.0.56 (Claude Code)"
-}
-```
-
-### `POST /chat`
-
-Запуск Claude Code с SSE streaming.
+Start Claude Code session with SSE streaming.
 
 ```bash
 curl -X POST http://localhost:9876/chat \
@@ -84,78 +77,95 @@ curl -X POST http://localhost:9876/chat \
 
 **Request Body:**
 
-| Поле | Тип | Обязательно | Описание |
-|------|-----|-------------|----------|
-| `prompt` | string | ✅ | Промпт пользователя |
-| `cwd` | string | ✅ | Рабочая директория |
-| `model` | string | - | Модель (sonnet, opus, haiku) |
-| `session_id` | string | - | ID сессии для продолжения |
-| `system_prompt` | string | - | Заменить системный промпт |
-| `append_system_prompt` | string | - | Дополнить системный промпт |
-| `tools` | string[] | - | Список инструментов |
-| `allowed_tools` | string[] | - | Whitelist инструментов |
-| `disallowed_tools` | string[] | - | Blacklist инструментов |
-| `permission_mode` | string | - | Режим разрешений |
-| `mcp_config` | string[] | - | MCP конфигурация |
-| `add_dir` | string[] | - | Дополнительные директории |
-| `debug` | bool/string | - | Режим отладки |
-| `json_schema` | object | - | JSON Schema для output |
-| `agents` | object | - | Custom agents |
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `prompt` | string | Yes | User prompt |
+| `cwd` | string | Yes | Working directory |
+| `model` | string | No | Model (sonnet, opus, haiku) |
+| `session_id` | string | No | Session ID to continue |
+| `system_prompt` | string | No | Replace system prompt |
+| `append_system_prompt` | string | No | Append to system prompt |
+| `tools` | string[] | No | Whitelist of visible tools |
+| `allowed_tools` | string[] | No | Auto-approved tool patterns |
+| `disallowed_tools` | string[] | No | Blocked tools |
+| `mcp_config` | string[] | No | MCP server configs |
 
 **Response:** SSE Stream
 
 ```
 event: message
-data: {"type":"system","subtype":"init","session_id":"uuid-here",...}
+data: {"type":"system","subtype":"init","session_id":"uuid",...}
 
 event: message
 data: {"type":"assistant","message":{"content":[{"type":"text","text":"..."}]}}
 
 event: message
-data: {"type":"result","subtype":"success",...}
+data: {"type":"result","subtype":"success","result":"...","total_cost_usd":0.01}
 
 event: done
-data: {"process_id":"uuid-here"}
+data: {"process_id":"uuid"}
 ```
 
-### `DELETE /chat/{process_id}`
+## Permission Modes
 
-Прервать выполнение процесса.
+### Full Access (default)
 
-```bash
-curl -X DELETE http://localhost:9876/chat/uuid-here \
-  -u admin:password
-```
-
-```json
-{"status": "cancelled", "process_id": "uuid-here"}
-```
-
-### `GET /processes`
-
-Список активных процессов.
-
-```bash
-curl http://localhost:9876/processes \
-  -u admin:password
-```
+Without `tools` or `allowed_tools`, runs with full permissions:
 
 ```json
 {
-  "processes": [
-    {
-      "process_id": "uuid",
-      "cwd": "/home/user/project",
-      "model": "sonnet",
-      "started_at": "2024-01-01T12:00:00Z",
-      "session_id": "claude-session-uuid"
-    }
-  ],
-  "count": 1
+  "prompt": "Run any command",
+  "cwd": "/project"
 }
 ```
 
-## Примеры использования
+### Restricted Mode
+
+With `tools` or `allowed_tools`, runs in restricted mode:
+
+```json
+{
+  "prompt": "Check git status",
+  "cwd": "/project",
+  "tools": ["Bash"],
+  "allowed_tools": ["Bash(git:*)"]
+}
+```
+
+This allows only `git` commands. Other commands like `rm`, `curl` will be blocked.
+
+**Examples:**
+
+```json
+// Only git commands
+{"tools": ["Bash"], "allowed_tools": ["Bash(git:*)"]}
+
+// Only specific script
+{"tools": ["Bash"], "allowed_tools": ["Bash(/path/to/script.py:*)"]}
+
+// Read-only (no Bash)
+{"tools": ["Read", "Glob", "Grep"], "allowed_tools": ["Read", "Glob", "Grep"]}
+
+// Only MCP tools
+{"tools": [], "allowed_tools": ["mcp__wildberries__wb_search"]}
+```
+
+See [PERMISSIONS.md](PERMISSIONS.md) for detailed documentation.
+
+## Session Management
+
+1. First request returns `session_id` in `type: system` message
+2. Pass `session_id` to continue conversation:
+
+```json
+{
+  "prompt": "What files did you create?",
+  "cwd": "/project",
+  "session_id": "previous-session-id"
+}
+```
+
+## Usage Examples
 
 ### Python
 
@@ -216,7 +226,7 @@ while (true) {
 }
 ```
 
-### cURL с SSE
+### cURL
 
 ```bash
 curl -N -X POST http://localhost:9876/chat \
@@ -225,61 +235,42 @@ curl -N -X POST http://localhost:9876/chat \
   -d '{"prompt": "Hello", "cwd": "/tmp"}'
 ```
 
-## Управление сессиями
-
-Claude Code использует session_id для сохранения контекста между запросами.
-
-1. Первый запрос возвращает session_id в первом сообщении `type: system`
-2. Для продолжения диалога передайте session_id в следующем запросе:
-
-```json
-{
-  "prompt": "What files did you create?",
-  "cwd": "/home/user/project",
-  "session_id": "previous-session-id"
-}
-```
-
 ## Systemd
 
 ```bash
-# Статус
+# Status
 sudo systemctl status claudecode2api
 
-# Запуск
+# Start/Stop/Restart
 sudo systemctl start claudecode2api
-
-# Остановка
 sudo systemctl stop claudecode2api
-
-# Перезапуск
 sudo systemctl restart claudecode2api
 
-# Логи
+# Logs
 sudo journalctl -u claudecode2api -f
 ```
 
-## Разработка
+## Development
 
 ```bash
-# Создать виртуальное окружение
+# Create virtual environment
 python3 -m venv venv
 source venv/bin/activate
 
-# Установить зависимости
+# Install dependencies
 pip install -r requirements.txt
 
-# Запустить в режиме разработки
+# Run in development mode
 uvicorn app.main:app --reload --host 0.0.0.0 --port 9876
 ```
 
-## API Documentation
+## Documentation
 
-После запуска доступна интерактивная документация:
-
+- [API.md](API.md) — Full API reference with examples
+- [PERMISSIONS.md](PERMISSIONS.md) — Tool and command restrictions guide
 - Swagger UI: http://localhost:9876/docs
 - ReDoc: http://localhost:9876/redoc
 
-## Лицензия
+## License
 
 MIT

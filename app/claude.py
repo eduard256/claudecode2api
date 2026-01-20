@@ -15,14 +15,21 @@ logger = logging.getLogger(__name__)
 def build_command(request: ChatRequest) -> list[str]:
     """
     Build Claude Code CLI command from request parameters.
-    Always includes: --dangerously-skip-permissions, --verbose, --output-format stream-json
+
+    Permission logic:
+    - If tools or allowed_tools are set: runs in restricted mode (no --dangerously-skip-permissions)
+    - If both are empty/None: runs with full access (--dangerously-skip-permissions)
     """
     cmd = [get_claude_path()]
 
     # Always required flags
-    cmd.extend(["--dangerously-skip-permissions"])
     cmd.extend(["--verbose"])
     cmd.extend(["--output-format", "stream-json"])
+
+    # Permission mode: restricted if tools or allowed_tools specified
+    has_restrictions = bool(request.tools) or bool(request.allowed_tools)
+    if not has_restrictions:
+        cmd.extend(["--dangerously-skip-permissions"])
 
     # Model
     if request.model:

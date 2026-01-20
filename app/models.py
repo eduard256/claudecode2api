@@ -26,9 +26,11 @@ class ChatRequest(BaseModel):
     append_system_prompt: str | None = Field(default=None, description="Append to default system prompt")
 
     # Tools configuration
-    tools: list[str] | None = Field(default=None, description="List of tools to enable")
-    allowed_tools: list[str] | None = Field(default=None, description="Whitelist of allowed tools")
-    disallowed_tools: list[str] | None = Field(default=None, description="Blacklist of tools")
+    # If tools or allowed_tools are set, runs WITHOUT --dangerously-skip-permissions (restricted mode)
+    # If both are empty/None, runs WITH --dangerously-skip-permissions (full access, default behavior)
+    tools: list[str] | None = Field(default=None, description="Whitelist of available tools. Only these tools are visible to AI. Example: ['Bash', 'Read', 'mcp__wildberries__wb_search']")
+    allowed_tools: list[str] | None = Field(default=None, description="Tool/command patterns auto-approved without blocking. Example: ['Bash(git:*)', 'Write', 'mcp__ozon__ozon_search']")
+    disallowed_tools: list[str] | None = Field(default=None, description="Tools completely removed from AI context")
 
     # Permission mode
     permission_mode: str | None = Field(default=None, description="Permission mode (default, acceptEdits, bypassPermissions, dontAsk, plan)")
