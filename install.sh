@@ -40,15 +40,31 @@ if python3 -m venv "$TEST_VENV" 2>/dev/null; then
 else
     rm -rf "$TEST_VENV"
     echo -e "${YELLOW}python3-venv not working, attempting to install...${NC}"
+
     if command -v apt &> /dev/null; then
-        sudo apt update -qq
+        echo -e "${YELLOW}Installing python${PYTHON_VERSION}-venv and python3-pip...${NC}"
+        echo -e "${YELLOW}You may be prompted for your sudo password.${NC}"
+        sudo apt update
         sudo apt install -y "python${PYTHON_VERSION}-venv" python3-pip
         echo -e "${GREEN}python3-venv installed${NC}"
     elif command -v yum &> /dev/null; then
-        sudo yum install -y python3-venv
+        echo -e "${YELLOW}Installing python3-venv...${NC}"
+        echo -e "${YELLOW}You may be prompted for your sudo password.${NC}"
+        sudo yum install -y python3-venv python3-pip
         echo -e "${GREEN}python3-venv installed${NC}"
     else
         echo -e "${RED}Cannot install python3-venv automatically. Please install it manually.${NC}"
+        echo -e "${RED}Run: apt install python${PYTHON_VERSION}-venv (Debian/Ubuntu)${NC}"
+        exit 1
+    fi
+
+    # Verify installation
+    if python3 -m venv "$TEST_VENV" 2>/dev/null; then
+        rm -rf "$TEST_VENV"
+        echo -e "${GREEN}python3-venv installation verified${NC}"
+    else
+        rm -rf "$TEST_VENV"
+        echo -e "${RED}python3-venv installation failed!${NC}"
         exit 1
     fi
 fi
@@ -168,6 +184,7 @@ WantedBy=multi-user.target
 EOF
 
     # Copy service file
+    echo -e "${YELLOW}Installing systemd service (may require sudo password)...${NC}"
     sudo cp claudecode2api.service /etc/systemd/system/
     sudo systemctl daemon-reload
     sudo systemctl enable claudecode2api
