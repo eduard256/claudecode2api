@@ -2,6 +2,14 @@
 
 API gateway for Claude Code CLI with SSE streaming, parallel requests support, and full JSON output proxying.
 
+## Installation
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/eduard256/claudecode2api/main/install.sh | bash
+```
+
+Works on clean Ubuntu/Debian/CentOS/Fedora systems. Installs everything automatically.
+
 ## Features
 
 - SSE streaming raw JSON without modifications
