@@ -95,6 +95,7 @@ async def chat(
             "X-Process-ID": process_id,
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable buffering in nginx/traefik
         },
     )
 
