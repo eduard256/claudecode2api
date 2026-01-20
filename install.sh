@@ -29,16 +29,80 @@ if [ "$(printf '%s\n' "$REQUIRED_VERSION" "$PYTHON_VERSION" | sort -V | head -n1
 fi
 echo -e "${GREEN}Python $PYTHON_VERSION detected${NC}"
 
+# Check and install python3-venv if needed
+echo -e "\n${YELLOW}Checking python3-venv...${NC}"
+if ! python3 -m venv --help &> /dev/null; then
+    echo -e "${YELLOW}python3-venv not found, attempting to install...${NC}"
+    if command -v apt &> /dev/null; then
+        sudo apt update -qq
+        sudo apt install -y python3-venv python3-pip
+        echo -e "${GREEN}python3-venv installed${NC}"
+    elif command -v yum &> /dev/null; then
+        sudo yum install -y python3-venv
+        echo -e "${GREEN}python3-venv installed${NC}"
+    else
+        echo -e "${RED}Cannot install python3-venv automatically. Please install it manually.${NC}"
+        exit 1
+    fi
+else
+    echo -e "${GREEN}python3-venv is available${NC}"
+fi
+
 # Check if Claude Code is available
 echo -e "\n${YELLOW}Checking Claude Code CLI...${NC}"
+CLAUDE_PATH=""
+CLAUDE_VERSION=""
+
+# Check in PATH
 if command -v claude &> /dev/null; then
     CLAUDE_PATH=$(which claude)
     CLAUDE_VERSION=$(claude --version 2>/dev/null || echo "unknown")
+    echo -e "${GREEN}Claude Code found in PATH: $CLAUDE_PATH ($CLAUDE_VERSION)${NC}"
+# Check in ~/.local/bin
+elif [ -f "$HOME/.local/bin/claude" ]; then
+    CLAUDE_PATH="$HOME/.local/bin/claude"
+    CLAUDE_VERSION=$($CLAUDE_PATH --version 2>/dev/null || echo "unknown")
     echo -e "${GREEN}Claude Code found: $CLAUDE_PATH ($CLAUDE_VERSION)${NC}"
+    echo -e "${YELLOW}Adding CLAUDE_PATH to .env...${NC}"
+
+    # Add CLAUDE_PATH to .env if not already there
+    if [ -f ".env" ]; then
+        if ! grep -q "CLAUDE_PATH=" .env; then
+            echo "CLAUDE_PATH=$CLAUDE_PATH" >> .env
+            echo -e "${GREEN}CLAUDE_PATH added to .env${NC}"
+        fi
+    fi
 else
-    echo -e "${RED}Claude Code CLI not found in PATH!${NC}"
-    echo -e "${YELLOW}Please install Claude Code first: https://claude.ai/code${NC}"
-    exit 1
+    echo -e "${RED}Claude Code CLI not found!${NC}"
+    echo -e "${YELLOW}Attempting to install Claude Code...${NC}"
+
+    if curl -fsSL https://claude.ai/install.sh | bash; then
+        echo -e "${GREEN}Claude Code installed successfully${NC}"
+
+        # Update PATH for current session
+        export PATH="$HOME/.local/bin:$PATH"
+
+        # Check again
+        if [ -f "$HOME/.local/bin/claude" ]; then
+            CLAUDE_PATH="$HOME/.local/bin/claude"
+            CLAUDE_VERSION=$($CLAUDE_PATH --version 2>/dev/null || echo "unknown")
+            echo -e "${GREEN}Claude Code found: $CLAUDE_PATH ($CLAUDE_VERSION)${NC}"
+
+            # Add to .env
+            if [ -f ".env" ]; then
+                if ! grep -q "CLAUDE_PATH=" .env; then
+                    echo "CLAUDE_PATH=$CLAUDE_PATH" >> .env
+                fi
+            fi
+        else
+            echo -e "${RED}Claude Code installation failed!${NC}"
+            exit 1
+        fi
+    else
+        echo -e "${RED}Failed to install Claude Code!${NC}"
+        echo -e "${YELLOW}Please install manually: https://claude.ai/code${NC}"
+        exit 1
+    fi
 fi
 
 # Create virtual environment
